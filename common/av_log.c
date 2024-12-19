@@ -219,7 +219,7 @@ void check_library_versions(struct mp_log *log, int v)
         {
             fprintf(stderr, "%s: %d.%d.%d -> %d.%d.%d\n",
                     l->name, V(l->buildv), V(l->runv));
-            abort();
+            //abort();
         }
     }
 }

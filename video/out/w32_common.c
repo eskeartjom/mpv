@@ -188,6 +188,11 @@ struct vo_w32_state {
 
     bool conversion_mode_init;
     bool unmaximize;
+    bool embedded;
+
+#ifdef _WIN32
+    HWND win32;
+#endif
 };
 
 static inline int get_system_metrics(struct vo_w32_state *w32, int metric)
@@ -937,7 +942,11 @@ static bool is_high_contrast(void)
 
 static DWORD update_style(struct vo_w32_state *w32, DWORD style)
 {
-    const DWORD NO_FRAME = WS_OVERLAPPED | WS_MINIMIZEBOX | WS_THICKFRAME;
+    DWORD NO_FRAME = WS_OVERLAPPED | WS_MINIMIZEBOX;
+
+    if(!w32->embedded)
+        NO_FRAME = NO_FRAME | WS_THICKFRAME;
+
     const DWORD FRAME = WS_OVERLAPPEDWINDOW;
     const DWORD FULLSCREEN = NO_FRAME & ~WS_THICKFRAME;
     style &= ~(NO_FRAME | FRAME | FULLSCREEN);
@@ -1890,21 +1899,23 @@ static bool is_key_message(UINT msg)
 static void run_message_loop(struct vo_w32_state *w32)
 {
     MSG msg;
-    while (!w32->destroyed && GetMessageW(&msg, 0, 0, 0) > 0) {
-        // Change the conversion mode on the first keypress, in case the timer
-        // solution fails. Note that this leaves the mode indicator in the language
-        // bar showing the original mode until a key is pressed.
-        if (is_key_message(msg.message) && !w32->conversion_mode_init) {
-            set_ime_conversion_mode(w32, IME_CMODE_ALPHANUMERIC);
-            w32->conversion_mode_init = true;
-            KillTimer(w32->window, (UINT_PTR)WM_CREATE);
-        }
-        // Only send IME messages to TranslateMessage
-        if (is_key_message(msg.message) && msg.wParam == VK_PROCESSKEY)
-            TranslateMessage(&msg);
-        DispatchMessageW(&msg);
-    }
 
+    if(!w32->embedded){
+        while (!w32->destroyed && GetMessageW(&msg, 0, 0, 0) > 0) {
+            // Change the conversion mode on the first keypress, in case the timer
+            // solution fails. Note that this leaves the mode indicator in the language
+            // bar showing the original mode until a key is pressed.
+            if (is_key_message(msg.message) && !w32->conversion_mode_init) {
+                set_ime_conversion_mode(w32, IME_CMODE_ALPHANUMERIC);
+                w32->conversion_mode_init = true;
+                KillTimer(w32->window, (UINT_PTR)WM_CREATE);
+            }
+            // Only send IME messages to TranslateMessage
+            if (is_key_message(msg.message) && msg.wParam == VK_PROCESSKEY)
+                TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        }
+    }
     // Even if the message loop somehow exits, we still have to respond to
     // external requests until termination is requested.
     while (!w32->terminate) {
@@ -2024,20 +2035,27 @@ static MP_THREAD_VOID gui_thread(void *ptr)
         w32->parent = (HWND)(intptr_t)(w32->opts->WinID);
 
     ATOM cls = get_window_class();
-    if (w32->parent) {
-        RECT r;
-        GetClientRect(w32->parent, &r);
-        CreateWindowExW(WS_EX_NOPARENTNOTIFY, (LPWSTR)MAKEINTATOM(cls), MPV_WINDOW_CLASS_NAME,
-                        WS_CHILD | WS_VISIBLE, 0, 0, r.right, r.bottom,
-                        w32->parent, 0, HINST_THISCOMPONENT, w32);
 
-        // Install a hook to get notifications when the parent changes size
-        if (w32->window)
-            install_parent_hook(w32);
+    if(!w32->win32) {
+
+        if (w32->parent) {
+            RECT r;
+            GetClientRect(w32->parent, &r);
+            CreateWindowExW(WS_EX_NOPARENTNOTIFY, (LPWSTR) MAKEINTATOM(cls), MPV_WINDOW_CLASS_NAME,
+                            WS_CHILD | WS_VISIBLE, 0, 0, r.right, r.bottom,
+                            w32->parent, 0, HINST_THISCOMPONENT, w32);
+
+            // Install a hook to get notifications when the parent changes size
+            if (w32->window)
+                install_parent_hook(w32);
+        } else {
+            CreateWindowExW(0, (LPWSTR) MAKEINTATOM(cls), MPV_WINDOW_CLASS_NAME,
+                            update_style(w32, 0), CW_USEDEFAULT, SW_HIDE, 100, 100,
+                            0, 0, HINST_THISCOMPONENT, w32);
+        }
+
     } else {
-        CreateWindowExW(0, (LPWSTR)MAKEINTATOM(cls), MPV_WINDOW_CLASS_NAME,
-                        update_style(w32, 0), CW_USEDEFAULT, SW_HIDE, 100, 100,
-                        0, 0, HINST_THISCOMPONENT, w32);
+        w32->window = w32->win32;
     }
 
     if (!w32->window) {
@@ -2045,68 +2063,71 @@ static MP_THREAD_VOID gui_thread(void *ptr)
         goto done;
     }
 
-    w32->menu_ctx = mp_win32_menu_init(w32->window);
-    update_dark_mode(w32);
-    update_corners_pref(w32);
-    if (w32->opts->window_affinity)
-        update_affinity(w32);
-    if (w32->opts->backdrop_type)
-        update_backdrop(w32);
-    if (w32->opts->cursor_passthrough)
-        update_cursor_passthrough(w32);
-    if (w32->opts->native_touch)
-        update_native_touch(w32);
+    if(!w32->embedded) {
 
-    if (SUCCEEDED(OleInitialize(NULL))) {
-        ole_ok = true;
+        w32->menu_ctx = mp_win32_menu_init(w32->window);
+        update_dark_mode(w32);
+        update_corners_pref(w32);
+        if (w32->opts->window_affinity)
+            update_affinity(w32);
+        if (w32->opts->backdrop_type)
+            update_backdrop(w32);
+        if (w32->opts->cursor_passthrough)
+            update_cursor_passthrough(w32);
+        if (w32->opts->native_touch)
+            update_native_touch(w32);
 
-        IDropTarget *dt = mp_w32_droptarget_create(w32->log, w32->opts, w32->input_ctx);
-        RegisterDragDrop(w32->window, dt);
 
-        // ITaskbarList2 has the MarkFullscreenWindow method, which is used to
-        // make sure the taskbar is hidden when mpv goes fullscreen
-        if (SUCCEEDED(CoCreateInstance(&CLSID_TaskbarList, NULL,
-                                       CLSCTX_INPROC_SERVER, &IID_ITaskbarList2,
-                                       (void**)&w32->taskbar_list)))
-        {
-            if (FAILED(ITaskbarList2_HrInit(w32->taskbar_list))) {
-                ITaskbarList2_Release(w32->taskbar_list);
-                w32->taskbar_list = NULL;
+
+        if (SUCCEEDED(OleInitialize(NULL))) {
+            ole_ok = true;
+
+            IDropTarget *dt = mp_w32_droptarget_create(w32->log, w32->opts, w32->input_ctx);
+            RegisterDragDrop(w32->window, dt);
+
+            // ITaskbarList2 has the MarkFullscreenWindow method, which is used to
+            // make sure the taskbar is hidden when mpv goes fullscreen
+            if (SUCCEEDED(CoCreateInstance(&CLSID_TaskbarList, NULL,
+                                           CLSCTX_INPROC_SERVER, &IID_ITaskbarList2,
+                                           (void **) &w32->taskbar_list))) {
+                if (FAILED(ITaskbarList2_HrInit(w32->taskbar_list))) {
+                    ITaskbarList2_Release(w32->taskbar_list);
+                    w32->taskbar_list = NULL;
+                }
             }
+
+            // ITaskbarList3 has methods for status indication on taskbar buttons,
+            // however that interface is only available on Win7/2008 R2 or newer
+            if (SUCCEEDED(CoCreateInstance(&CLSID_TaskbarList, NULL,
+                                           CLSCTX_INPROC_SERVER, &IID_ITaskbarList3,
+                                           (void **) &w32->taskbar_list3))) {
+                if (FAILED(ITaskbarList3_HrInit(w32->taskbar_list3))) {
+                    ITaskbarList3_Release(w32->taskbar_list3);
+                    w32->taskbar_list3 = NULL;
+                } else {
+                    w32->tbtn_created_msg = RegisterWindowMessage(L"TaskbarButtonCreated");
+                }
+            }
+        } else {
+            MP_ERR(w32, "Failed to initialize OLE/COM\n");
         }
 
-        // ITaskbarList3 has methods for status indication on taskbar buttons,
-        // however that interface is only available on Win7/2008 R2 or newer
-        if (SUCCEEDED(CoCreateInstance(&CLSID_TaskbarList, NULL,
-                                       CLSCTX_INPROC_SERVER, &IID_ITaskbarList3,
-                                       (void**)&w32->taskbar_list3)))
-        {
-            if (FAILED(ITaskbarList3_HrInit(w32->taskbar_list3))) {
-                ITaskbarList3_Release(w32->taskbar_list3);
-                w32->taskbar_list3 = NULL;
-            } else {
-                w32->tbtn_created_msg = RegisterWindowMessage(L"TaskbarButtonCreated");
-            }
-        }
-    } else {
-        MP_ERR(w32, "Failed to initialize OLE/COM\n");
+        w32->tracking   = FALSE;
+        w32->track_event = (TRACKMOUSEEVENT){
+            .cbSize    = sizeof(TRACKMOUSEEVENT),
+            .dwFlags   = TME_LEAVE,
+            .hwndTrack = w32->window,
+        };
+
+        if (w32->parent)
+            EnableWindow(w32->window, 0);
+
+        w32->cursor_visible = true;
+        w32->moving = false;
+        w32->snapped = 0;
+        w32->snap_dx = w32->snap_dy = 0;
+
     }
-
-    w32->tracking   = FALSE;
-    w32->track_event = (TRACKMOUSEEVENT){
-        .cbSize    = sizeof(TRACKMOUSEEVENT),
-        .dwFlags   = TME_LEAVE,
-        .hwndTrack = w32->window,
-    };
-
-    if (w32->parent)
-        EnableWindow(w32->window, 0);
-
-    w32->cursor_visible = true;
-    w32->moving = false;
-    w32->snapped = 0;
-    w32->snap_dx = w32->snap_dy = 0;
-
     mp_dispatch_set_wakeup_fn(w32->dispatch, wakeup_gui_thread, w32);
 
     res = 1;
@@ -2146,6 +2167,10 @@ bool vo_w32_init(struct vo *vo)
         .opts_cache = m_config_cache_alloc(w32, vo->global, &vo_sub_opts),
         .input_ctx = vo->input_ctx,
         .dispatch = mp_dispatch_create(w32),
+        .embedded = vo->embedded,
+#ifdef _WIN32
+        .win32 = vo->win32,
+#endif
     };
     w32->opts = w32->opts_cache->opts;
     vo->w32 = w32;

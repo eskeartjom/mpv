@@ -467,6 +467,13 @@ typedef struct MPContext {
     //     to true.
     struct demuxer *open_res_demuxer;
     int open_res_error;
+
+    bool embedded;
+
+#ifdef _WIN32
+    HWND win32;
+#endif
+
 } MPContext;
 
 // Contains information about an asynchronous work item, how it can be aborted,

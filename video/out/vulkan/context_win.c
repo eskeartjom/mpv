@@ -47,17 +47,28 @@ static bool win_init(struct ra_ctx *ctx)
     if (!mpvk_init(vk, ctx, VK_KHR_WIN32_SURFACE_EXTENSION_NAME))
         goto error;
 
-    if (!vo_w32_init(ctx->vo))
-        goto error;
+    VkWin32SurfaceCreateInfoKHR wininfo;
 
-    if (ctx->opts.want_alpha)
-        vo_w32_set_transparency(ctx->vo, ctx->opts.want_alpha);
+    if(ctx->vo->embedded){
 
-    VkWin32SurfaceCreateInfoKHR wininfo = {
-         .sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR,
-         .hinstance = HINST_THISCOMPONENT,
-         .hwnd = vo_w32_hwnd(ctx->vo),
-    };
+        if (!vo_w32_init(ctx->vo))
+            goto error;
+
+        wininfo.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
+        wininfo.hinstance = HINST_THISCOMPONENT;
+        wininfo.hwnd = ctx->vo->win32;
+    }
+    else{
+        if (!vo_w32_init(ctx->vo))
+            goto error;
+
+        if (ctx->opts.want_alpha)
+            vo_w32_set_transparency(ctx->vo, ctx->opts.want_alpha);
+
+        wininfo.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
+        wininfo.hinstance = HINST_THISCOMPONENT;
+        wininfo.hwnd = vo_w32_hwnd(ctx->vo);
+    }
 
     struct ra_vk_ctx_params params = {0};
 

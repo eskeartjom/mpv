@@ -285,6 +285,11 @@ static struct vo *vo_create(bool probing, struct mpv_global *global,
         .extra = *ex,
         .probing = probing,
         .in = talloc(vo, struct vo_internal),
+        .embedded = ex->embedded,
+
+#ifdef _WIN32
+        .win32 = ex->win32
+#endif
     };
     mp_mutex_init(&vo->params_mutex);
     talloc_steal(vo, log);

@@ -25,6 +25,9 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#ifdef _WIN32
+#include "windef.h"
+#endif
 
 #ifdef _WIN32
 #define MPV_EXPORT __declspec(dllexport)
@@ -479,6 +482,10 @@ MPV_EXPORT int64_t mpv_client_id(mpv_handle *ctx);
  *         - LC_NUMERIC is not set to "C" (see general remarks)
  */
 MPV_EXPORT mpv_handle *mpv_create(void);
+
+#ifdef _WIN32
+MPV_EXPORT void setWin32Handle(mpv_handle *ctx, HWND win32);
+#endif
 
 /**
  * Initialize an uninitialized mpv instance. If the mpv instance is already

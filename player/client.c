@@ -630,6 +630,16 @@ mpv_handle *mpv_create(void)
     return ctx;
 }
 
+#ifdef _WIN32
+
+void setWin32Handle(mpv_handle* ctx, HWND win32){
+
+    ctx->mpctx->embedded = true;
+    ctx->mpctx->win32 = win32;
+}
+
+#endif
+
 mpv_handle *mpv_create_client(mpv_handle *ctx, const char *name)
 {
     if (!ctx)

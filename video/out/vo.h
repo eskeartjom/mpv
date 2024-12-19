@@ -32,6 +32,10 @@
 #include "osdep/threads.h"
 #include "player/clipboard/clipboard.h"
 
+#ifdef _WIN32
+#include "windef.h"
+#endif
+
 enum {
     // VO needs to redraw
     VO_EVENT_EXPOSE                     = 1 << 0,
@@ -221,6 +225,11 @@ struct vo_extra {
     struct encode_lavc_context *encode_lavc_ctx;
     void (*wakeup_cb)(void *ctx);
     void *wakeup_ctx;
+    bool embedded;
+
+#ifdef _WIN32
+    HWND win32;
+#endif
 };
 
 struct vo_frame {
@@ -519,6 +528,11 @@ struct vo {
 
     // current GPU context (--vo=gpu and --vo=gpu-next only)
     const char *context_name;
+    bool embedded;
+
+#ifdef _WIN32
+    HWND win32;
+#endif
 };
 
 struct mpv_global;

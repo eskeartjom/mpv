@@ -1768,10 +1768,10 @@ major = client_h_define.split('|')[0].split('<<')[0].strip('() ')
 minor = client_h_define.split('|')[1].strip('() ')
 client_api_version = major + '.' + minor + '.0'
 
-libmpv = library('mpv', sources, dependencies: dependencies, gnu_symbol_visibility: 'hidden',
+libmpv = library('libmpv', sources, dependencies: dependencies, gnu_symbol_visibility: 'hidden',
                  link_args: cc.get_supported_link_arguments(['-Wl,-Bsymbolic']),
                  version: client_api_version, install: get_option('libmpv'),
-                 build_by_default: get_option('libmpv'))
+                 build_by_default: get_option('libmpv'), c_args : ['-g', '-O0'])
 
 
 if get_option('libmpv')
@@ -1817,11 +1817,11 @@ if get_option('cplayer')
     install_data('etc/mpv-symbolic.svg', install_dir: join_paths(hicolor_dir, 'symbolic', 'apps'))
 
     mpv = executable('mpv', main_fn_source, objects: libmpv.extract_all_objects(recursive: true), dependencies: dependencies,
-                     win_subsystem: get_option('win32-subsystem'), install: true)
+                     win_subsystem: get_option('win32-subsystem'), install: true, c_args : ['-g', '-O0'])
 
     if win32 and get_option('win32-subsystem') != 'console'
         wrapper_sources= 'osdep/win32-console-wrapper.c'
-        executable('mpv', wrapper_sources, c_args: '-municode', link_args: '-municode',
+        executable('mpvcom', wrapper_sources, c_args: '-municode', link_args: '-municode',
                    name_suffix: 'com', install: true)
     endif
 
@@ -1861,6 +1861,14 @@ endif
 if get_option('fuzzers')
     subdir('fuzzers')
 endif
+
+
+if get_option('demo')
+    subdir('demo')
+endif
+
+
+
 
 summary({'d3d11': features['d3d11'],
          'javascript': features['javascript'],
